@@ -33,20 +33,16 @@ Nhấn **Save and Deploy**. Cloudflare Pages sẽ tự động cài đặt depen
 
 ---
 
-## Cách 2: Deploy trực tiếp bằng Cloudflare Wrangler CLI
+## Cách 2: Deploy trực tiếp bằng Cloudflare Wrangler CLI (Workers Assets)
 
-Nếu bạn muốn deploy trực tiếp từ máy tính mà không cần kết nối Git:
+Ứng dụng hỗ trợ cả lệnh `npx wrangler deploy` (Cloudflare Workers Static Assets) và `npx wrangler pages deploy dist`:
 
 ```bash
-# 1. Cài đặt dependency & build ứng dụng
-npm install
-npm run build
-
-# 2. Deploy lên Cloudflare Pages bằng Wrangler
-npx wrangler pages deploy dist --project-name dich-phu-de-ai
+# Deploy với lệnh tự động build và upload assets:
+npx wrangler deploy
 ```
 
-Hoặc sử dụng câu lệnh được cấu hình sẵn trong `package.json`:
+Hoặc qua npm script:
 ```bash
 npm run deploy
 ```
@@ -55,9 +51,11 @@ npm run deploy
 
 ## Các cải tiến đã được cấu hình sẵn cho Cloudflare:
 
-1. **SPA Routing Fallback (`public/_redirects`)**: Chuyển hướng `/* -> /index.html 200` để đảm bảo khi F5 reload hoặc mở trực tiếp URL không bị lỗi 404.
-2. **Tối ưu Cache & Security Header (`public/_headers`)**: Thiết lập `immutable cache` cho thư mục `/assets` và các header bảo mật (`nosniff`, `SAMEORIGIN`).
-3. **Wrangler Config (`wrangler.toml`)**: Tích hợp cấu hình chuẩn cho Cloudflare Pages.
+1. **Khắc phục lỗi `Missing entry-point to Worker script or to assets directory`**:
+   - Cấu hình `[assets]` với `directory = "./dist"` và `not_found_handling = "single-page-application"` trong `wrangler.toml`.
+   - Cấu hình `[build] command = "npm run build"` để Wrangler tự động gọi lệnh build Vite trước khi deploy.
+2. **SPA Routing Fallback**: Hỗ trợ chuyển hướng SPA cho cả Cloudflare Pages (`public/_redirects`) và Cloudflare Workers Assets (`not_found_handling = "single-page-application"`).
+3. **Tối ưu Cache & Security Header (`public/_headers`)**: Thiết lập `immutable cache` cho thư mục `/assets` và các header bảo mật (`nosniff`, `SAMEORIGIN`).
 4. **Chuẩn hóa Tên Package (`package.json`)**: Đổi tên sang slug chuẩn URL (`dich-phu-de-ai`) không chứa dấu tiếng Việt tránh lỗi `EINVALIDPACKAGENAME` khi build trên Linux runner của Cloudflare.
 5. **Giao diện Quản lý API Key đa tầng**:
    - Nhận tự động từ `process.env.GEMINI_API_KEY`, `VITE_GEMINI_API_KEY` (khi build trên Cloudflare).

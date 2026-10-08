@@ -50,7 +50,7 @@ export const testGeminiApiKey = async (apiKey?: string): Promise<{ success: bool
   try {
     const ai = getClient(apiKey);
     const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
+      model: 'gemini-3.8-flash',
       contents: 'Respond with the word OK.',
     });
     if (response.text) {
@@ -83,7 +83,7 @@ export const analyzeSubtitleContext = async (
   subtitles: SubtitleBlock[],
   sourceLang: string,
   targetLang: string,
-  model: string = 'gemini-3.5-flash-lite'
+  model: string = 'gemini-3.8-flash'
 ): Promise<CharacterAnalysis> => {
   if (subtitles.length === 0) {
     return {
@@ -183,7 +183,7 @@ export const translateBatch = async (
   texts: string[],
   sourceLang: string,
   targetLang: string,
-  model: string = 'gemini-3.5-flash-lite',
+  model: string = 'gemini-3.8-flash',
   onRetry?: (attempt: number, delayMs: number) => void,
   analysis?: CharacterAnalysis | null
 ): Promise<string[]> => {

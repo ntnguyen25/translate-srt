@@ -44,10 +44,11 @@ export interface ModelOption {
 }
 
 export const MODELS: ModelOption[] = [
-  { id: 'gemini-3.5-flash-lite', name: 'Gemini 3.5 Flash Lite', description: 'Default & Ultra-Fast' },
-  { id: 'gemini-3.1-flash-lite', name: 'Gemini 3.1 Flash Lite', description: 'Fast & Efficient' },
-  { id: 'gemini-3-flash-preview', name: 'Gemini 3 Flash', description: 'Fastest & Latest' },
-  { id: 'gemini-3-pro-preview', name: 'Gemini 3 Pro', description: 'Deepest Reasoning' },
+  { id: 'gemini-3.8-flash', name: 'Gemini 3.8 Flash', description: 'Mới Nhất & Dịch Chuẩn Xác (Khuyên dùng)' },
+  { id: 'gemini-3.5-flash-lite', name: 'Gemini 3.5 Flash Lite', description: 'Siêu Nhanh & Tiết Kiệm' },
+  { id: 'gemini-3.1-flash-lite', name: 'Gemini 3.1 Flash Lite', description: 'Nhanh & Ổn Định' },
+  { id: 'gemini-3-flash-preview', name: 'Gemini 3 Flash', description: 'Thế Hệ 3 Flash' },
+  { id: 'gemini-3.1-pro-preview', name: 'Gemini 3.1 Pro', description: 'Suy Luận Cao Cấp' },
 ];
 
 export const LANGUAGES: LanguageOption[] = [

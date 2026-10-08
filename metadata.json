@@ -1,6 +1,6 @@
 {
   "name": "Dịch phụ đề AI 6",
-  "description": "A modern SRT subtitle translator powered by Gemini 2.5 Flash. Upload your .srt files, select languages, and get instant, context-aware translations.",
+  "description": "A modern SRT subtitle translator powered by Gemini 3.8 Flash. Upload your .srt files, select languages, and get instant, context-aware translations.",
   "requestFramePermissions": [],
   "majorCapabilities": [
     "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"

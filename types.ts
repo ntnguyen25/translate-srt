@@ -6,6 +6,11 @@ export interface SubtitleBlock {
   text: string;
 }
 
+export interface SubtitleItem {
+  id: number;
+  text: string;
+}
+
 export enum TranslationStatus {
   IDLE = 'IDLE',
   PARSING = 'PARSING',

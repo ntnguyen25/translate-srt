@@ -1,6 +1,6 @@
 
 import { GoogleGenAI, Type } from "@google/genai";
-import { SubtitleBlock, CharacterAnalysis } from "../types";
+import { SubtitleBlock, CharacterAnalysis, SubtitleItem } from "../types";
 
 // Helper for exponential backoff
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -180,14 +180,14 @@ export const analyzeSubtitleContext = async (
 };
 
 export const translateBatch = async (
-  texts: string[],
+  items: SubtitleItem[],
   sourceLang: string,
   targetLang: string,
   model: string = 'gemini-3.8-flash',
   onRetry?: (attempt: number, delayMs: number) => void,
   analysis?: CharacterAnalysis | null
-): Promise<string[]> => {
-  if (texts.length === 0) return [];
+): Promise<Map<number, string>> => {
+  if (items.length === 0) return new Map();
 
   const MAX_RETRIES = 3;
   let attempt = 0;
@@ -214,23 +214,32 @@ export const translateBatch = async (
     `;
   }
 
-  // Define a prompt that encourages brevity and subtitle formatting
+  // Explicit prompt guaranteeing 1-to-1 subtitle block mapping by ID
   const prompt = `
     You are a professional subtitle translator. 
-    Translate the following array of subtitle text segments from ${sourceLang === 'auto' ? 'the detected language' : sourceLang} to ${targetLang}.
+    You are provided with a JSON array of subtitle blocks. Each block has an exact integer "id" and a "text".
+    Translate the "text" of each block from ${sourceLang === 'auto' ? 'the detected language' : sourceLang} to ${targetLang}.
     
     ${contextSection}
 
-    Rules:
-    1. Maintain tone, style, and strict consistency in pronoun/address usage (xưng hô) as defined above.
-    2. Keep translations concise to fit within standard subtitle limits where possible.
-    3. Do not add any introductory or concluding text.
-    4. Return exactly the same number of items in the array as provided.
-    5. Preserve any HTML tags like <i> or <b> if present.
-    6. Output ONLY a valid JSON array of strings, with no markdown formatting or other text.
-    
-    Input texts:
-    ${JSON.stringify(texts)}
+    CRITICAL RULES - STRICT 1-TO-1 BLOCK CORRESPONDENCE (BẢO TOÀN TỪNG BLOCK VÀ THỜI GIAN):
+    1. EXACT ID PAIRING:
+       - Every input block ID must exist in the output array with its exact same "id".
+       - NEVER merge two or more subtitle blocks into one block under any circumstance.
+       - NEVER split one subtitle block into multiple blocks.
+       - NEVER skip or delete any block, even if it is short, contains only punctuation (e.g., "...", "?"), sound cues (e.g., "[Music]", "(sigh)"), or numbers.
+    2. MULTI-LINE DIALOGUE:
+       - If a single block contains multiple dialogue lines (separated by \\n or hyphens "-"), keep all dialogue lines within that SAME block's "text".
+    3. PRESERVE FORMATTING:
+       - Preserve HTML tags (<i>, <b>) or ASS subtitle tags ({\\an8}, \\N) intact.
+    4. ACCURATE PRONOUNS:
+       - Maintain consistent character address (xưng hô) according to the rules above.
+    5. OUTPUT FORMAT:
+       - Output MUST be a valid JSON array of objects: [{"id": <number>, "text": "<translated string>"}, ...].
+       - Do NOT include any introductory or concluding text, explanations, or markdown fences.
+
+    INPUT BLOCKS:
+    ${JSON.stringify(items.map(b => ({ id: b.id, text: b.text })))}
   `;
 
   while (attempt <= MAX_RETRIES) {
@@ -243,7 +252,14 @@ export const translateBatch = async (
           responseMimeType: "application/json",
           responseSchema: {
             type: Type.ARRAY,
-            items: { type: Type.STRING },
+            items: {
+              type: Type.OBJECT,
+              properties: {
+                id: { type: Type.INTEGER },
+                text: { type: Type.STRING }
+              },
+              required: ["id", "text"]
+            }
           }
         }
       });
@@ -256,16 +272,30 @@ export const translateBatch = async (
       const translatedArray = JSON.parse(jsonText);
       
       if (!Array.isArray(translatedArray)) {
-          throw new Error("Invalid response format");
+        throw new Error("Invalid response format: expected JSON array");
       }
 
-      // Fallback: if lengths mismatch, we return original to avoid desync
-      if (translatedArray.length !== texts.length) {
-        console.warn(`Mismatch in translation count. Sent ${texts.length}, received ${translatedArray.length}. Padding with originals.`);
-        return texts.map((orig, i) => translatedArray[i] || orig);
+      const resultMap = new Map<number, string>();
+      for (const item of translatedArray) {
+        if (item && typeof item.id === 'number' && typeof item.text === 'string') {
+          resultMap.set(item.id, item.text);
+        }
       }
 
-      return translatedArray;
+      // Safeguard: Ensure every input block has a valid translation mapped by its ID
+      items.forEach((item, idx) => {
+        if (!resultMap.has(item.id)) {
+          // If translation count matches, fallback to positional item if valid
+          if (translatedArray[idx] && typeof translatedArray[idx].text === 'string') {
+            resultMap.set(item.id, translatedArray[idx].text);
+          } else {
+            // Keep original text for this block so other blocks never shift
+            resultMap.set(item.id, item.text);
+          }
+        }
+      });
+
+      return resultMap;
 
     } catch (error: any) {
       // Check for rate limit errors (429) or service overload (503)
@@ -291,5 +321,8 @@ export const translateBatch = async (
     }
   }
 
-  return texts;
+  // Fallback: return original text for each block
+  const fallbackMap = new Map<number, string>();
+  items.forEach(item => fallbackMap.set(item.id, item.text));
+  return fallbackMap;
 };

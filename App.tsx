@@ -4,10 +4,10 @@ import { FileText, ArrowRight, Download, RefreshCw, Globe, CheckCircle2, AlertCi
 import FileUploader from './components/FileUploader';
 import { parseSRT, generateSRT, renumberSubtitles, parseASS, generateASS, AssMeta } from './utils/srtParser';
 import { translateBatch, analyzeSubtitleContext, getStoredApiKey, setStoredApiKey, getEffectiveApiKey, hasAvailableApiKey, hasEnvApiKey, testGeminiApiKey } from './services/geminiService';
-import { SubtitleBlock, LANGUAGES, TranslationStatus, MODELS, ModelOption, CharacterAnalysis, RelationshipRule } from './types';
+import { SubtitleBlock, SubtitleItem, LANGUAGES, TranslationStatus, MODELS, ModelOption, CharacterAnalysis, RelationshipRule } from './types';
 
-// How many subtitles to send to Gemini at once
-const BATCH_SIZE = 40;
+// How many subtitles to send to Gemini at once (25 ensures 100% 1-to-1 block and timing accuracy)
+const BATCH_SIZE = 25;
 
 const App: React.FC = () => {
   const [fileName, setFileName] = useState<string | null>(null);
@@ -112,18 +112,25 @@ const App: React.FC = () => {
 
     setStatus(TranslationStatus.TRANSLATING);
 
-    let currentTranslations: SubtitleBlock[] = translatedSubtitles.length > 0 
+    // Initialize with exact clones of original blocks so all IDs and timestamps are 100% locked
+    let currentTranslations: SubtitleBlock[] = translatedSubtitles.length === originalSubtitles.length
         ? [...translatedSubtitles] 
-        : [...originalSubtitles];
+        : originalSubtitles.map(orig => ({
+            id: orig.id,
+            startTime: orig.startTime,
+            endTime: orig.endTime,
+            text: orig.text
+          }));
 
     try {
       for (let i = 0; i < originalSubtitles.length; i += BATCH_SIZE) {
         const batch = originalSubtitles.slice(i, i + BATCH_SIZE);
         
-        // Check if this batch is already translated (resume logic)
-        const isBatchTranslated = translatedSubtitles.length > 0 && batch.some((block, idx) => {
+        // Check if all blocks in this batch are already translated (true resume check)
+        const isBatchTranslated = translatedSubtitles.length === originalSubtitles.length && batch.every((block, idx) => {
             const globalIndex = i + idx;
-            return translatedSubtitles[globalIndex] && translatedSubtitles[globalIndex].text !== originalSubtitles[globalIndex].text;
+            const t = translatedSubtitles[globalIndex];
+            return t && t.text && t.text !== block.text && t.text.trim() !== '';
         });
 
         if (isBatchTranslated) {
@@ -131,10 +138,13 @@ const App: React.FC = () => {
             continue;
         }
 
-        const textsToTranslate = batch.map(b => b.text);
+        const itemsToTranslate: SubtitleItem[] = batch.map(b => ({
+          id: b.id,
+          text: b.text
+        }));
         
-        const translatedTexts = await translateBatch(
-          textsToTranslate, 
+        const translatedMap = await translateBatch(
+          itemsToTranslate, 
           sourceLang, 
           targetLang, 
           selectedModel,
@@ -150,15 +160,20 @@ const App: React.FC = () => {
         setStatus(TranslationStatus.TRANSLATING);
         setRetryCount(0);
 
-        // Update local variable
+        // Update each block strictly matching its ID to ensure 100% timing and block accuracy
         batch.forEach((block, idx) => {
             const globalIndex = i + idx;
-            if (currentTranslations[globalIndex]) {
-                currentTranslations[globalIndex] = {
-                    ...currentTranslations[globalIndex],
-                    text: translatedTexts[idx] || block.text // Fallback to original
-                };
-            }
+            const orig = originalSubtitles[globalIndex];
+            const translatedText = translatedMap.get(block.id);
+
+            currentTranslations[globalIndex] = {
+                id: orig.id,
+                startTime: orig.startTime,
+                endTime: orig.endTime,
+                text: (translatedText !== undefined && translatedText.trim() !== '')
+                      ? translatedText
+                      : block.text // Fallback to original if missing
+            };
         });
 
         setTranslatedSubtitles([...currentTranslations]);

@@ -2,35 +2,62 @@ import { SubtitleBlock } from '../types';
 
 // SRT Functions
 export const parseSRT = (data: string): SubtitleBlock[] => {
-  // Normalize line endings
-  const normalizedData = data.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
-  const blocks = normalizedData.split('\n\n');
+  // Normalize line endings and strip UTF-8 BOM
+  const cleanData = data
+    .replace(/^\uFEFF/, '')
+    .replace(/\r\n/g, '\n')
+    .replace(/\r/g, '\n');
+
+  // Split on double newlines with optional spaces/tabs on blank lines
+  const rawBlocks = cleanData.split(/\n[ \t]*\n+/);
   
   const subtitles: SubtitleBlock[] = [];
+  let currentFallbackId = 1;
 
-  blocks.forEach(block => {
-    const lines = block.split('\n').filter(line => line.trim() !== '');
-    if (lines.length >= 3) {
-      // Line 1: ID
-      const id = parseInt(lines[0], 10);
-      
-      // Line 2: Timecodes
-      const timecodeLine = lines[1];
-      const [startTime, endTime] = timecodeLine.split(' --> ');
-      
-      // Line 3+: Text
-      const text = lines.slice(2).join('\n');
+  for (const block of rawBlocks) {
+    const rawLines = block.split('\n');
+    const trimmedLines = rawLines.map(l => l.trim()).filter(l => l.length > 0);
+    if (trimmedLines.length === 0) continue;
 
-      if (!isNaN(id) && startTime && endTime) {
-        subtitles.push({
-          id,
-          startTime: startTime.trim(),
-          endTime: endTime.trim(),
-          text
-        });
+    // Locate the timecode line containing "-->"
+    const timecodeIndex = trimmedLines.findIndex(l => l.includes('-->'));
+    if (timecodeIndex === -1) continue;
+
+    const timecodeLine = trimmedLines[timecodeIndex];
+    const timeParts = timecodeLine.split('-->');
+    if (timeParts.length < 2) continue;
+
+    const startTime = timeParts[0].trim();
+    // In case of extra coordinates like "00:00:05,000 X1:00 Y1:00"
+    const endTime = timeParts[1].trim().split(/\s+/)[0];
+
+    // Determine ID from preceding lines or fallback
+    let id = currentFallbackId;
+    if (timecodeIndex > 0) {
+      const parsed = parseInt(trimmedLines[0], 10);
+      if (!isNaN(parsed)) {
+        id = parsed;
       }
     }
-  });
+
+    // Dialogue text is everything after timecodeIndex in rawLines
+    const rawTimecodeIndex = rawLines.findIndex(l => l.trim() === timecodeLine);
+    let text = '';
+    if (rawTimecodeIndex !== -1 && rawTimecodeIndex + 1 < rawLines.length) {
+      text = rawLines.slice(rawTimecodeIndex + 1).join('\n').trim();
+    } else {
+      text = trimmedLines.slice(timecodeIndex + 1).join('\n').trim();
+    }
+
+    subtitles.push({
+      id,
+      startTime,
+      endTime,
+      text
+    });
+
+    currentFallbackId = id + 1;
+  }
 
   return subtitles;
 };

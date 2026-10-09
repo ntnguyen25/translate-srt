@@ -214,32 +214,46 @@ export const translateBatch = async (
     `;
   }
 
-  // Explicit prompt guaranteeing 1-to-1 subtitle block mapping by ID
+  // Build fixed-key dictionary and schema (e.g. "b_1", "b_2", ...)
+  // This guarantees Gemini CANNOT add, remove, merge, or shift any subtitle block!
+  const inputDict: Record<string, string> = {};
+  const schemaProperties: Record<string, any> = {};
+  const schemaRequired: string[] = [];
+
+  items.forEach(item => {
+    const key = `b_${item.id}`;
+    inputDict[key] = item.text;
+    schemaProperties[key] = {
+      type: Type.STRING,
+      description: `Exact translation of subtitle block #${item.id}`
+    };
+    schemaRequired.push(key);
+  });
+
   const prompt = `
-    You are a professional subtitle translator. 
-    You are provided with a JSON array of subtitle blocks. Each block has an exact integer "id" and a "text".
-    Translate the "text" of each block from ${sourceLang === 'auto' ? 'the detected language' : sourceLang} to ${targetLang}.
+    You are an expert subtitle translation director.
+    Translate each subtitle block into ${targetLang}.
     
     ${contextSection}
 
-    CRITICAL RULES - STRICT 1-TO-1 BLOCK CORRESPONDENCE (BẢO TOÀN TỪNG BLOCK VÀ THỜI GIAN):
-    1. EXACT ID PAIRING:
-       - Every input block ID must exist in the output array with its exact same "id".
-       - NEVER merge two or more subtitle blocks into one block under any circumstance.
-       - NEVER split one subtitle block into multiple blocks.
-       - NEVER skip or delete any block, even if it is short, contains only punctuation (e.g., "...", "?"), sound cues (e.g., "[Music]", "(sigh)"), or numbers.
-    2. MULTI-LINE DIALOGUE:
-       - If a single block contains multiple dialogue lines (separated by \\n or hyphens "-"), keep all dialogue lines within that SAME block's "text".
-    3. PRESERVE FORMATTING:
-       - Preserve HTML tags (<i>, <b>) or ASS subtitle tags ({\\an8}, \\N) intact.
-    4. ACCURATE PRONOUNS:
-       - Maintain consistent character address (xưng hô) according to the rules above.
-    5. OUTPUT FORMAT:
-       - Output MUST be a valid JSON array of objects: [{"id": <number>, "text": "<translated string>"}, ...].
-       - Do NOT include any introductory or concluding text, explanations, or markdown fences.
+    CRITICAL RULES - ABSOLUTE 1-TO-1 BLOCK PRESERVATION (CHỐNG LỆCH DÒNG TUYỆT ĐỐI):
+    1. STRICT KEY-TO-KEY MAPPING:
+       - The input is a JSON object where each key represents a specific subtitle block (e.g. "b_${items[0]?.id || 1}", etc.).
+       - You MUST return a JSON object containing the EXACT SAME keys.
+       - Each key's value MUST be the translation of ONLY that specific block.
+       - NEVER shift or swap sentences between keys (e.g., NEVER put the translation of block 11 into block 12!).
+       - NEVER merge multiple blocks together. Each block has its own independent video timestamp!
+    2. MULTI-LINE DIALOGUES:
+       - If a single block contains multiple dialogue lines (e.g., two speakers separated by \\n or hyphens "-"), keep all dialogue lines inside that SAME key's value.
+    3. SHORT / SOUND BLOCKS:
+       - Even if a block is short, contains only punctuation (e.g. "...", "?"), sound effects (e.g. "[Music]", "[Applause]"), or interjections, translate or preserve it inside its own key.
+    4. PRESERVE FORMATTING:
+       - Keep any formatting tags intact (<i>...</i>, <b>...</b>, {\\an8}, \\N).
+    5. PRONOUNS (XƯNG HÔ):
+       - Strictly adhere to character gender and relationship forms of address defined above.
 
-    INPUT BLOCKS:
-    ${JSON.stringify(items.map(b => ({ id: b.id, text: b.text })))}
+    INPUT DICTIONARY TO TRANSLATE:
+    ${JSON.stringify(inputDict, null, 2)}
   `;
 
   while (attempt <= MAX_RETRIES) {
@@ -251,15 +265,9 @@ export const translateBatch = async (
         config: {
           responseMimeType: "application/json",
           responseSchema: {
-            type: Type.ARRAY,
-            items: {
-              type: Type.OBJECT,
-              properties: {
-                id: { type: Type.INTEGER },
-                text: { type: Type.STRING }
-              },
-              required: ["id", "text"]
-            }
+            type: Type.OBJECT,
+            properties: schemaProperties,
+            required: schemaRequired
           }
         }
       });
@@ -269,29 +277,21 @@ export const translateBatch = async (
         throw new Error("Empty response from Gemini");
       }
 
-      const translatedArray = JSON.parse(jsonText);
-      
-      if (!Array.isArray(translatedArray)) {
-        throw new Error("Invalid response format: expected JSON array");
-      }
-
+      const parsedObj = JSON.parse(jsonText);
       const resultMap = new Map<number, string>();
-      for (const item of translatedArray) {
-        if (item && typeof item.id === 'number' && typeof item.text === 'string') {
-          resultMap.set(item.id, item.text);
-        }
-      }
 
-      // Safeguard: Ensure every input block has a valid translation mapped by its ID
-      items.forEach((item, idx) => {
-        if (!resultMap.has(item.id)) {
-          // If translation count matches, fallback to positional item if valid
-          if (translatedArray[idx] && typeof translatedArray[idx].text === 'string') {
-            resultMap.set(item.id, translatedArray[idx].text);
-          } else {
-            // Keep original text for this block so other blocks never shift
-            resultMap.set(item.id, item.text);
-          }
+      items.forEach(item => {
+        const key = `b_${item.id}`;
+        // Look up by dedicated key "b_<id>", or fallback to numeric key
+        const translatedVal = parsedObj[key] 
+          ?? parsedObj[String(item.id)] 
+          ?? parsedObj[item.id];
+
+        if (typeof translatedVal === 'string' && translatedVal.trim() !== '') {
+          resultMap.set(item.id, translatedVal);
+        } else {
+          // If empty, keep original text for this block so no other block ever shifts
+          resultMap.set(item.id, item.text);
         }
       });
 
@@ -304,13 +304,8 @@ export const translateBatch = async (
       
       if ((isRateLimit || isServiceUnavailable) && attempt < MAX_RETRIES) {
         attempt++;
-        // Exponential backoff: 2s, 4s, 8s
         const delayMs = Math.pow(2, attempt) * 1000;
-        
-        if (onRetry) {
-          onRetry(attempt, delayMs);
-        }
-        
+        if (onRetry) onRetry(attempt, delayMs);
         console.warn(`Attempt ${attempt} failed with rate limit. Retrying in ${delayMs}ms...`);
         await delay(delayMs);
         continue;

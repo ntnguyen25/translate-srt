@@ -6,8 +6,8 @@ import { parseSRT, generateSRT, renumberSubtitles, parseASS, generateASS, AssMet
 import { translateBatch, analyzeSubtitleContext, getStoredApiKey, setStoredApiKey, getEffectiveApiKey, hasAvailableApiKey, hasEnvApiKey, testGeminiApiKey } from './services/geminiService';
 import { SubtitleBlock, SubtitleItem, LANGUAGES, TranslationStatus, MODELS, ModelOption, CharacterAnalysis, RelationshipRule } from './types';
 
-// How many subtitles to send to Gemini at once (25 ensures 100% 1-to-1 block and timing accuracy)
-const BATCH_SIZE = 25;
+// How many subtitles to send to Gemini at once (20 ensures 100% 1-to-1 block and timing accuracy)
+const BATCH_SIZE = 20;
 
 const App: React.FC = () => {
   const [fileName, setFileName] = useState<string | null>(null);

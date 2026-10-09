@@ -50,13 +50,11 @@ export const parseSRT = (data: string): SubtitleBlock[] => {
     }
 
     subtitles.push({
-      id,
+      id: subtitles.length + 1,
       startTime,
       endTime,
       text
     });
-
-    currentFallbackId = id + 1;
   }
 
   return subtitles;
